@@ -45,8 +45,6 @@ canvas {
 (() => {
   const canvas = document.getElementById("game");
   const ctx = canvas.getContext("2d");
-  const CREDIT = "制作者：古川青空";
-
 
   // 元のアスペクト比（900/500など）を保持
   const BASE_ASPECT = canvas.width / canvas.height;
@@ -310,7 +308,7 @@ ctx.fillStyle = "#fff";                 // まずは白でテスト（見えや�
 ctx.font = "12px system-ui, sans-serif";
 ctx.textAlign = "right";
 ctx.textBaseline = "bottom";
-ctx.fillText("制作者：あなたの名前", W - 12, H - 8);
+ctx.fillText("制作者：古川青空", W - 12, H - 8);
 ctx.restore();
  }
 
