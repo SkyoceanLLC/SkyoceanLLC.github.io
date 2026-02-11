@@ -8,6 +8,32 @@
     html, body { margin: 0; height: 100%; background:#111; color:#ddd; font-family: system-ui, sans-serif; }
     .wrap { display:flex; align-items:center; justify-content:center; height:100%; }
     canvas { background:#0b0b0b; border:1px solid #333; }
+    .wrap {
+  height: 100%;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+      canvas { touch-action: none; user-select: none; }
+
+
+  /* ノッチ/安全領域 */
+  padding: env(safe-area-inset-top) env(safe-area-inset-right)
+           env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
+
+canvas {
+  width: 100vw;
+  height: auto;              /* JS側で高さも決める */
+  max-width: 1000px;         /* 任意：PCで巨大化しすぎ防止 */
+  background:#0b0b0b;
+  border:1px solid #333;
+
+  /* 重要：タッチ操作時にスクロールや拡大をしない */
+  touch-action: none;
+  user-select: none;
+}
+
   </style>
 </head>
 <body>
@@ -20,9 +46,13 @@
   const canvas = document.getElementById("game");
   const ctx = canvas.getContext("2d");
 
-  // --- ゲーム設定 ---
-  const W = canvas.width, H = canvas.height;
+  // 元のアスペクト比（900/500など）を保持
+  const BASE_ASPECT = canvas.width / canvas.height;
 
+  // 便利関数（先に定義しておく）
+  function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
+
+  // --- ゲーム設定 ---
   const paddle = {
     w: 14,
     h: 96,
@@ -37,18 +67,68 @@
     maxSpeed: 900
   };
 
-  // --- 状態 ---
-  const keys = new Set();
+  // ★★★ ここが重要：W/Hを固定constではなく可変にする ★★★
+  let W = 0, H = 0;
 
-  const left = { x: paddle.margin, y: (H - paddle.h)/2, vy: 0, score: 0 };
-  const right = { x: W - paddle.margin - paddle.w, y: (H - paddle.h)/2, vy: 0, score: 0 };
-
-  const ball = { x: W/2, y: H/2, vx: 0, vy: 0, speed: ballCfg.baseSpeed };
+  // オブジェクトはW/Hに依存しない形で作っておく
+  const left  = { x: paddle.margin, y: 0, vy: 0, score: 0 };
+  const right = { x: 0, y: 0, vy: 0, score: 0 };
+  const ball  = { x: 0, y: 0, vx: 0, vy: 0, speed: ballCfg.baseSpeed };
 
   let running = false;
   let paused = false;
 
-  // --- 入力 ---
+  // --- スマホ対応：Canvasを画面にフィット + 高DPI対応 ---
+  function fitCanvas() {
+    const dpr = Math.min(3, window.devicePixelRatio || 1);
+
+    // CSS上での表示サイズを決める（横幅ベース）
+    let cssW = Math.min(window.innerWidth, 1000); // PCでデカすぎ防止（不要なら消してOK）
+    let cssH = Math.floor(cssW / BASE_ASPECT);
+
+    // 高さが収まらない場合は高さベースに切り替え
+    const maxCssH = Math.floor(window.innerHeight * 0.92);
+    if (cssH > maxCssH) {
+      cssH = maxCssH;
+      cssW = Math.floor(cssH * BASE_ASPECT);
+    }
+
+    canvas.style.width = cssW + "px";
+    canvas.style.height = cssH + "px";
+
+    // 実ピクセル（高DPIでくっきり）
+    canvas.width  = Math.floor(cssW * dpr);
+    canvas.height = Math.floor(cssH * dpr);
+
+    // 座標系をCSSピクセル基準に（以降の描画はW/Hの座標でOK）
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    W = cssW;
+    H = cssH;
+
+    // サイズ依存の値を更新
+    right.x = W - paddle.margin - paddle.w;
+
+    // 位置を画面内に
+    left.y  = clamp(left.y,  0, H - paddle.h);
+    right.y = clamp(right.y, 0, H - paddle.h);
+    ball.x  = clamp(ball.x,  ballCfg.r, W - ballCfg.r);
+    ball.y  = clamp(ball.y,  ballCfg.r, H - ballCfg.r);
+
+    // 初回だけセンタリング
+    if (left.y === 0 && right.y === 0) {
+      left.y = (H - paddle.h) / 2;
+      right.y = (H - paddle.h) / 2;
+      ball.x = W / 2;
+      ball.y = H / 2;
+    }
+  }
+
+  window.addEventListener("resize", fitCanvas);
+  window.addEventListener("orientationchange", fitCanvas);
+
+  // --- 入力（PC） ---
+  const keys = new Set();
   addEventListener("keydown", (e) => {
     keys.add(e.key);
     if (e.key === " ") paused = !paused;
@@ -56,15 +136,42 @@
   });
   addEventListener("keyup", (e) => keys.delete(e.key));
 
-  canvas.addEventListener("click", () => { running = true; paused = false; });
+  // --- 入力（スマホ/タッチ）：指で左パドルを動かす ---
+  canvas.style.touchAction = "none"; // CSSでもOK（保険）
 
-  function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
+  let dragging = false;
+
+  function setLeftPaddleByClientY(clientY) {
+    const rect = canvas.getBoundingClientRect();
+    const y = clientY - rect.top; // CSSピクセル
+    left.y = clamp(y - paddle.h / 2, 0, H - paddle.h);
+  }
+
+  canvas.addEventListener("pointerdown", (e) => {
+    // タップで開始（音を使う場合もここで解禁されやすい）
+    running = true;
+    paused = false;
+
+    dragging = true;
+    setLeftPaddleByClientY(e.clientY);
+
+    canvas.setPointerCapture(e.pointerId);
+    e.preventDefault();
+  }, { passive: false });
+
+  canvas.addEventListener("pointermove", (e) => {
+    if (!dragging) return;
+    setLeftPaddleByClientY(e.clientY);
+    e.preventDefault();
+  }, { passive: false });
+
+  canvas.addEventListener("pointerup", () => { dragging = false; });
+  canvas.addEventListener("pointercancel", () => { dragging = false; });
 
   function resetBall(towardRight = true) {
-    ball.x = W/2; ball.y = H/2;
+    ball.x = W / 2; ball.y = H / 2;
     ball.speed = ballCfg.baseSpeed;
 
-    // 角度を少しランダム（上に飛びすぎない範囲）
     const angle = (Math.random() * 0.6 - 0.3); // -0.3..0.3 rad
     const dir = towardRight ? 1 : -1;
 
@@ -74,15 +181,14 @@
 
   function resetGame() {
     left.score = 0; right.score = 0;
-    left.y = (H - paddle.h)/2;
-    right.y = (H - paddle.h)/2;
+    left.y = (H - paddle.h) / 2;
+    right.y = (H - paddle.h) / 2;
     resetBall(Math.random() < 0.5);
     running = false;
     paused = false;
   }
 
   function rectCircleHit(rx, ry, rw, rh, cx, cy, cr) {
-    // 円と矩形の当たり判定（最近点を使う）
     const nearestX = clamp(cx, rx, rx + rw);
     const nearestY = clamp(cy, ry, ry + rh);
     const dx = cx - nearestX;
@@ -91,36 +197,31 @@
   }
 
   function bounceOnPaddle(p) {
-    // ラケットに当たった位置で反射角を変える（テニスっぽさが出る）
     const paddleCenter = p.y + paddle.h / 2;
     const rel = (ball.y - paddleCenter) / (paddle.h / 2); // -1..1
-    const maxAngle = 0.9; // 反射の最大角度（rad）
+    const maxAngle = 0.9;
     const angle = rel * maxAngle;
 
-    // スピード加速
     ball.speed = Math.min(ballCfg.maxSpeed, ball.speed * ballCfg.speedUp);
 
-    // x方向は反転、yは角度で決める
-    const dir = (p === left) ? 1 : -1; // 左に当たったら右へ、右に当たったら左へ
+    const dir = (p === left) ? 1 : -1;
     ball.vx = Math.cos(angle) * ball.speed * dir;
     ball.vy = Math.sin(angle) * ball.speed;
 
-    // めり込み防止で少し押し戻す
     if (p === left) ball.x = p.x + paddle.w + ballCfg.r;
     else ball.x = p.x - ballCfg.r;
   }
 
-  // 右パドルはAI（ボールを追う）
   function updateAI(dt) {
-    // 予測ではなく“追従”の簡易AI（強すぎないように少し鈍らせる）
-    const target = ball.y - paddle.h/2;
+    const target = ball.y - paddle.h / 2;
     const diff = target - right.y;
-    const follow = 6.0; // 大きいほど追従が速い
+    const follow = 6.0;
     right.y += diff * follow * dt;
     right.y = clamp(right.y, 0, H - paddle.h);
   }
 
   function updatePlayer(dt) {
+    // PC用：W/S操作（スマホはドラッグで直接 left.y が動く）
     let vy = 0;
     if (keys.has("w") || keys.has("W")) vy -= 1;
     if (keys.has("s") || keys.has("S")) vy += 1;
@@ -132,7 +233,6 @@
     ball.x += ball.vx * dt;
     ball.y += ball.vy * dt;
 
-    // 上下の壁
     if (ball.y - ballCfg.r < 0) {
       ball.y = ballCfg.r;
       ball.vy *= -1;
@@ -142,51 +242,44 @@
       ball.vy *= -1;
     }
 
-    // ラケット当たり判定
     const lHit = rectCircleHit(left.x, left.y, paddle.w, paddle.h, ball.x, ball.y, ballCfg.r);
     const rHit = rectCircleHit(right.x, right.y, paddle.w, paddle.h, ball.x, ball.y, ballCfg.r);
 
     if (lHit && ball.vx < 0) bounceOnPaddle(left);
     if (rHit && ball.vx > 0) bounceOnPaddle(right);
 
-    // 得点（左右に出た）
     if (ball.x + ballCfg.r < 0) {
       right.score += 1;
-      resetBall(false); // 次は左へ
+      resetBall(false);
     }
     if (ball.x - ballCfg.r > W) {
       left.score += 1;
-      resetBall(true);  // 次は右へ
+      resetBall(true);
     }
   }
 
   function draw() {
     ctx.clearRect(0, 0, W, H);
 
-    // ネット
     ctx.fillStyle = "#2a2a2a";
-    for (let y = 0; y < H; y += 18) ctx.fillRect(W/2 - 2, y, 4, 10);
+    for (let y = 0; y < H; y += 18) ctx.fillRect(W / 2 - 2, y, 4, 10);
 
-    // パドル
     ctx.fillStyle = "#eaeaea";
     ctx.fillRect(left.x, left.y, paddle.w, paddle.h);
     ctx.fillRect(right.x, right.y, paddle.w, paddle.h);
 
-    // ボール
     ctx.beginPath();
     ctx.arc(ball.x, ball.y, ballCfg.r, 0, Math.PI * 2);
     ctx.fill();
 
-    // スコア
     ctx.fillStyle = "#ddd";
     ctx.font = "28px system-ui, sans-serif";
     ctx.textAlign = "center";
-    ctx.fillText(`${left.score}  :  ${right.score}`, W/2, 44);
+    ctx.fillText(`${left.score}  :  ${right.score}`, W / 2, 44);
 
-    // ガイド
     ctx.font = "14px system-ui, sans-serif";
     ctx.textAlign = "left";
-    ctx.fillText("左: W/S  |  Space: Pause  |  Enter: Reset  |  Click: Start", 14, H - 16);
+    ctx.fillText("左: W/S or ドラッグ | Space: Pause | Enter: Reset | Tap: Start", 14, H - 16);
 
     if (!running) {
       ctx.fillStyle = "rgba(0,0,0,0.55)";
@@ -194,9 +287,9 @@
       ctx.fillStyle = "#fff";
       ctx.font = "26px system-ui, sans-serif";
       ctx.textAlign = "center";
-      ctx.fillText("クリックで開始", W/2, H/2 - 10);
+      ctx.fillText("タップ/クリックで開始", W / 2, H / 2 - 10);
       ctx.font = "16px system-ui, sans-serif";
-      ctx.fillText("W/Sでラケット操作（右はAI）", W/2, H/2 + 22);
+      ctx.fillText("指でドラッグしてラケット操作（右はAI）", W / 2, H / 2 + 22);
     }
 
     if (paused && running) {
@@ -205,14 +298,14 @@
       ctx.fillStyle = "#fff";
       ctx.font = "30px system-ui, sans-serif";
       ctx.textAlign = "center";
-      ctx.fillText("PAUSED", W/2, H/2);
+      ctx.fillText("PAUSED", W / 2, H / 2);
     }
   }
 
   // --- ループ ---
   let last = performance.now();
   function loop(now) {
-    const dt = Math.min(0.033, (now - last) / 1000); // 最大33ms
+    const dt = Math.min(0.033, (now - last) / 1000);
     last = now;
 
     if (running && !paused) {
@@ -225,11 +318,13 @@
     requestAnimationFrame(loop);
   }
 
-  // 初期化
+  // 初期化：fitCanvas → resetBall の順が重要
+  fitCanvas();
   resetBall(true);
   requestAnimationFrame(loop);
 })();
 </script>
+
 </body>
 </html>
 
