@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Canvas Tennis (PONG)</title>
+  <style>
+    html, body { margin: 0; height: 100%; background:#111; color:#ddd; font-family: system-ui, sans-serif; }
+    .wrap { display:flex; align-items:center; justify-content:center; height:100%; }
+    canvas { background:#0b0b0b; border:1px solid #333; }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <canvas id="game" width="900" height="500"></canvas>
+</div>
+
+<script>
+(() => {
+  const canvas = document.getElementById("game");
+  const ctx = canvas.getContext("2d");
+
+  // --- ゲーム設定 ---
+  const W = canvas.width, H = canvas.height;
+
+  const paddle = {
+    w: 14,
+    h: 96,
+    speed: 420, // px/s
+    margin: 30
+  };
+
+  const ballCfg = {
+    r: 8,
+    baseSpeed: 380,   // 初速
+    speedUp: 1.04,    // ラケットに当たるたび少し加速
+    maxSpeed: 900
+  };
+
+  // --- 状態 ---
+  const keys = new Set();
+
+  const left = { x: paddle.margin, y: (H - paddle.h)/2, vy: 0, score: 0 };
+  const right = { x: W - paddle.margin - paddle.w, y: (H - paddle.h)/2, vy: 0, score: 0 };
+
+  const ball = { x: W/2, y: H/2, vx: 0, vy: 0, speed: ballCfg.baseSpeed };
+
+  let running = false;
+  let paused = false;
+
+  // --- 入力 ---
+  addEventListener("keydown", (e) => {
+    keys.add(e.key);
+    if (e.key === " ") paused = !paused;
+    if (e.key === "Enter") resetGame();
+  });
+  addEventListener("keyup", (e) => keys.delete(e.key));
+
+  canvas.addEventListener("click", () => { running = true; paused = false; });
+
+  function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
+
+  function resetBall(towardRight = true) {
+    ball.x = W/2; ball.y = H/2;
+    ball.speed = ballCfg.baseSpeed;
+
+    // 角度を少しランダム（上に飛びすぎない範囲）
+    const angle = (Math.random() * 0.6 - 0.3); // -0.3..0.3 rad
+    const dir = towardRight ? 1 : -1;
+
+    ball.vx = Math.cos(angle) * ball.speed * dir;
+    ball.vy = Math.sin(angle) * ball.speed;
+  }
+
+  function resetGame() {
+    left.score = 0; right.score = 0;
+    left.y = (H - paddle.h)/2;
+    right.y = (H - paddle.h)/2;
+    resetBall(Math.random() < 0.5);
+    running = false;
+    paused = false;
+  }
+
+  function rectCircleHit(rx, ry, rw, rh, cx, cy, cr) {
+    // 円と矩形の当たり判定（最近点を使う）
+    const nearestX = clamp(cx, rx, rx + rw);
+    const nearestY = clamp(cy, ry, ry + rh);
+    const dx = cx - nearestX;
+    const dy = cy - nearestY;
+    return (dx*dx + dy*dy) <= cr*cr;
+  }
+
+  function bounceOnPaddle(p) {
+    // ラケットに当たった位置で反射角を変える（テニスっぽさが出る）
+    const paddleCenter = p.y + paddle.h / 2;
+    const rel = (ball.y - paddleCenter) / (paddle.h / 2); // -1..1
+    const maxAngle = 0.9; // 反射の最大角度（rad）
+    const angle = rel * maxAngle;
+
+    // スピード加速
+    ball.speed = Math.min(ballCfg.maxSpeed, ball.speed * ballCfg.speedUp);
+
+    // x方向は反転、yは角度で決める
+    const dir = (p === left) ? 1 : -1; // 左に当たったら右へ、右に当たったら左へ
+    ball.vx = Math.cos(angle) * ball.speed * dir;
+    ball.vy = Math.sin(angle) * ball.speed;
+
+    // めり込み防止で少し押し戻す
+    if (p === left) ball.x = p.x + paddle.w + ballCfg.r;
+    else ball.x = p.x - ballCfg.r;
+  }
+
+  // 右パドルはAI（ボールを追う）
+  function updateAI(dt) {
+    // 予測ではなく“追従”の簡易AI（強すぎないように少し鈍らせる）
+    const target = ball.y - paddle.h/2;
+    const diff = target - right.y;
+    const follow = 6.0; // 大きいほど追従が速い
+    right.y += diff * follow * dt;
+    right.y = clamp(right.y, 0, H - paddle.h);
+  }
+
+  function updatePlayer(dt) {
+    let vy = 0;
+    if (keys.has("w") || keys.has("W")) vy -= 1;
+    if (keys.has("s") || keys.has("S")) vy += 1;
+    left.y += vy * paddle.speed * dt;
+    left.y = clamp(left.y, 0, H - paddle.h);
+  }
+
+  function updateBall(dt) {
+    ball.x += ball.vx * dt;
+    ball.y += ball.vy * dt;
+
+    // 上下の壁
+    if (ball.y - ballCfg.r < 0) {
+      ball.y = ballCfg.r;
+      ball.vy *= -1;
+    }
+    if (ball.y + ballCfg.r > H) {
+      ball.y = H - ballCfg.r;
+      ball.vy *= -1;
+    }
+
+    // ラケット当たり判定
+    const lHit = rectCircleHit(left.x, left.y, paddle.w, paddle.h, ball.x, ball.y, ballCfg.r);
+    const rHit = rectCircleHit(right.x, right.y, paddle.w, paddle.h, ball.x, ball.y, ballCfg.r);
+
+    if (lHit && ball.vx < 0) bounceOnPaddle(left);
+    if (rHit && ball.vx > 0) bounceOnPaddle(right);
+
+    // 得点（左右に出た）
+    if (ball.x + ballCfg.r < 0) {
+      right.score += 1;
+      resetBall(false); // 次は左へ
+    }
+    if (ball.x - ballCfg.r > W) {
+      left.score += 1;
+      resetBall(true);  // 次は右へ
+    }
+  }
+
+  function draw() {
+    ctx.clearRect(0, 0, W, H);
+
+    // ネット
+    ctx.fillStyle = "#2a2a2a";
+    for (let y = 0; y < H; y += 18) ctx.fillRect(W/2 - 2, y, 4, 10);
+
+    // パドル
+    ctx.fillStyle = "#eaeaea";
+    ctx.fillRect(left.x, left.y, paddle.w, paddle.h);
+    ctx.fillRect(right.x, right.y, paddle.w, paddle.h);
+
+    // ボール
+    ctx.beginPath();
+    ctx.arc(ball.x, ball.y, ballCfg.r, 0, Math.PI * 2);
+    ctx.fill();
+
+    // スコア
+    ctx.fillStyle = "#ddd";
+    ctx.font = "28px system-ui, sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText(`${left.score}  :  ${right.score}`, W/2, 44);
+
+    // ガイド
+    ctx.font = "14px system-ui, sans-serif";
+    ctx.textAlign = "left";
+    ctx.fillText("左: W/S  |  Space: Pause  |  Enter: Reset  |  Click: Start", 14, H - 16);
+
+    if (!running) {
+      ctx.fillStyle = "rgba(0,0,0,0.55)";
+      ctx.fillRect(0, 0, W, H);
+      ctx.fillStyle = "#fff";
+      ctx.font = "26px system-ui, sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillText("クリックで開始", W/2, H/2 - 10);
+      ctx.font = "16px system-ui, sans-serif";
+      ctx.fillText("W/Sでラケット操作（右はAI）", W/2, H/2 + 22);
+    }
+
+    if (paused && running) {
+      ctx.fillStyle = "rgba(0,0,0,0.5)";
+      ctx.fillRect(0, 0, W, H);
+      ctx.fillStyle = "#fff";
+      ctx.font = "30px system-ui, sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillText("PAUSED", W/2, H/2);
+    }
+  }
+
+  // --- ループ ---
+  let last = performance.now();
+  function loop(now) {
+    const dt = Math.min(0.033, (now - last) / 1000); // 最大33ms
+    last = now;
+
+    if (running && !paused) {
+      updatePlayer(dt);
+      updateAI(dt);
+      updateBall(dt);
+    }
+
+    draw();
+    requestAnimationFrame(loop);
+  }
+
+  // 初期化
+  resetBall(true);
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
+
