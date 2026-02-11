@@ -45,6 +45,8 @@ canvas {
 (() => {
   const canvas = document.getElementById("game");
   const ctx = canvas.getContext("2d");
+  const CREDIT = "制作者：古川青空";
+
 
   // 元のアスペクト比（900/500など）を保持
   const BASE_ASPECT = canvas.width / canvas.height;
@@ -164,10 +166,6 @@ canvas {
     setLeftPaddleByClientY(e.clientY);
     e.preventDefault();
   }, { passive: false });
-  if (!running) {
-  // ...既存の描画...
-  ctx.font = "14px system-ui, sans-serif";
-  ctx.fillText("制作者：古川青空", W/2, H/2 + 55);
 }
 
 
@@ -269,6 +267,12 @@ canvas {
 
     ctx.fillStyle = "#2a2a2a";
     for (let y = 0; y < H; y += 18) ctx.fillRect(W / 2 - 2, y, 4, 10);
+    // クレジット（右下）
+ctx.fillStyle = "rgba(255,255,255,0.7)";
+ctx.font = "12px system-ui, sans-serif";
+ctx.textAlign = "right";
+ctx.fillText(CREDIT, W - 12, H - 16);
+
 
     ctx.fillStyle = "#eaeaea";
     ctx.fillRect(left.x, left.y, paddle.w, paddle.h);
