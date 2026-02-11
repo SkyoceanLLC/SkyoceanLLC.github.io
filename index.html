@@ -170,6 +170,7 @@ canvas {
   canvas.addEventListener("pointerup", () => { dragging = false; });
   canvas.addEventListener("pointercancel", () => { dragging = false; });
 
+  
   function resetBall(towardRight = true) {
     ball.x = W / 2; ball.y = H / 2;
     ball.speed = ballCfg.baseSpeed;
