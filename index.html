@@ -267,12 +267,6 @@ canvas {
 
     ctx.fillStyle = "#2a2a2a";
     for (let y = 0; y < H; y += 18) ctx.fillRect(W / 2 - 2, y, 4, 10);
-    // クレジット（右下）
-ctx.fillStyle = "rgba(255,255,255,0.7)";
-ctx.font = "12px system-ui, sans-serif";
-ctx.textAlign = "right";
-ctx.fillText(CREDIT, W - 12, H - 16);
-
 
     ctx.fillStyle = "#eaeaea";
     ctx.fillRect(left.x, left.y, paddle.w, paddle.h);
@@ -310,7 +304,15 @@ ctx.fillText(CREDIT, W - 12, H - 16);
       ctx.textAlign = "center";
       ctx.fillText("PAUSED", W / 2, H / 2);
     }
-  }
+ // === ここを draw() の一番最後（ } の直前）に追加 ===
+ctx.save();
+ctx.fillStyle = "#fff";                 // まずは白でテスト（見えやすい）
+ctx.font = "12px system-ui, sans-serif";
+ctx.textAlign = "right";
+ctx.textBaseline = "bottom";
+ctx.fillText("制作者：あなたの名前", W - 12, H - 8);
+ctx.restore();
+ }
 
   // --- ループ ---
   let last = performance.now();
