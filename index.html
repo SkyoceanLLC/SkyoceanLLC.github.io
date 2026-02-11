@@ -136,35 +136,36 @@ canvas {
   });
   addEventListener("keyup", (e) => keys.delete(e.key));
 
-  // --- 入力（スマホ/タッチ）：指で左パドルを動かす ---
-  canvas.style.touchAction = "none"; // CSSでもOK（保険）
+// --- 入力（スマホ/タッチ）：指で左パドルを動かす ---
+canvas.style.touchAction = "none";
 
-  let dragging = false;
+let dragging = false;
 
-  function setLeftPaddleByClientY(clientY) {
-    const rect = canvas.getBoundingClientRect();
-    const y = clientY - rect.top; // CSSピクセル
-    left.y = clamp(y - paddle.h / 2, 0, H - paddle.h);
-  }
-
-  canvas.addEventListener("pointerdown", (e) => {
-    // タップで開始（音を使う場合もここで解禁されやすい）
-    running = true;
-    paused = false;
-
-    dragging = true;
-    setLeftPaddleByClientY(e.clientY);
-
-    canvas.setPointerCapture(e.pointerId);
-    e.preventDefault();
-  }, { passive: false });
-
-  canvas.addEventListener("pointermove", (e) => {
-    if (!dragging) return;
-    setLeftPaddleByClientY(e.clientY);
-    e.preventDefault();
-  }, { passive: false });
+function setLeftPaddleByClientY(clientY) {
+  const rect = canvas.getBoundingClientRect();
+  const y = clientY - rect.top; // CSSピクセル
+  left.y = clamp(y - paddle.h / 2, 0, H - paddle.h);
 }
+
+canvas.addEventListener("pointerdown", (e) => {
+  running = true;
+  paused = false;
+
+  dragging = true;
+  setLeftPaddleByClientY(e.clientY);
+
+  canvas.setPointerCapture(e.pointerId);
+  e.preventDefault();
+});
+
+canvas.addEventListener("pointermove", (e) => {
+  if (!dragging) return;
+  setLeftPaddleByClientY(e.clientY);
+  e.preventDefault();
+});
+
+canvas.addEventListener("pointerup", () => { dragging = false; });
+canvas.addEventListener("pointercancel", () => { dragging = false; });
 
 
   canvas.addEventListener("pointerup", () => { dragging = false; });
